@@ -1,0 +1,115 @@
+{
+  "name": "M2 · W2 · Redactor de Notificaciones",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {"name": "session_id"},
+            {"name": "tipo"},
+            {"name": "ramo"},
+            {"name": "temperatura"},
+            {"name": "bien"},
+            {"name": "nombre"},
+            {"name": "contacto"},
+            {"name": "localidad"},
+            {"name": "faltantes"},
+            {"name": "mensaje"},
+            {"name": "motivo"}
+          ]
+        }
+      },
+      "id": "70158b32-43eb-49cb-beae-fcf445d4c181",
+      "name": "Entrada · Contrato del Manager",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [48, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "// W2 · Redactor de Notificaciones — tarea atómica: armar el aviso para Mariela.\n// Mantiene el formato de la tool notificar_asesor_humano del M1, ahora con plantilla fija.\nconst i = $input.first().json;\nconst v = (x) => (x ?? '').toString().trim() || 'no informado';\nconst TIPOS = ['LEAD', 'POSTVENTA', 'REVISION_HUMANA'];\n\nif (!TIPOS.includes(i.tipo)) {\n  throw new Error(`Contrato inválido: tipo \"${i.tipo}\" no está en ${TIPOS.join(', ')}`);\n}\n\nconst ramo = (i.ramo && i.ramo !== 'NO_IDENTIFICADO') ? i.ramo : 'ramo no identificado';\n\nlet asunto;\nif (i.tipo === 'LEAD') {\n  asunto = `Lead ${ramo} - ${v(i.bien)} [${v(i.temperatura)}]`;\n} else if (i.tipo === 'POSTVENTA') {\n  asunto = `Postventa ${ramo} - requiere atención personal`;\n} else {\n  asunto = `Atención humana - ${ramo}`;\n}\n\nconst campos = [\n  `Nombre: ${v(i.nombre)}`,\n  `Contacto: ${v(i.contacto)}`,\n  `Localidad: ${v(i.localidad)}`,\n  `Ramo: ${v(i.ramo)}`,\n  `Bien a asegurar: ${v(i.bien)}`,\n  `Motivo de la derivación: ${v(i.motivo)}`,\n  `Resumen del pedido: ${v(i.mensaje)}`,\n];\n\nif (i.tipo === 'LEAD') {\n  campos.push('', `Temperatura: ${v(i.temperatura)}`, `Datos faltantes: ${i.faltantes ? i.faltantes : 'ninguno'}`);\n}\ncampos.push('', `Sesión: ${v(i.session_id)}`);\n\nreturn [{ json: { tipo: i.tipo, asunto, cuerpo: campos.join('\\n') } }];\n"
+      },
+      "id": "5a9a76d9-d825-46cc-b950-0a05de5f1a3a",
+      "name": "Redactar correo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [304, 304],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "sendTo": "francocanova10@gmail.com",
+        "subject": "={{ $json.asunto }}",
+        "emailType": "text",
+        "message": "={{ $json.cuerpo }}",
+        "options": {"appendAttribution": false}
+      },
+      "id": "516b9d49-fafb-44f1-a7f5-08d9fc4a2579",
+      "name": "Enviar aviso a Mariela (Gmail)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [560, 208],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000,
+      "webhookId": "cf1a8d75-e14e-4b9a-9262-c8bae9d2dd55",
+      "onError": "continueErrorOutput",
+      "credentials": {"gmailOAuth2": {"id": "pHdqa7Y7LIjKLHGj", "name": "Gmail OAuth2 API"}}
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "e43fb047-e560-44c2-8777-bacdab86bd0d", "name": "status", "value": "success", "type": "string"},
+            {"id": "994ff3ee-45e8-4558-a03e-2b895449e3a1", "name": "data", "value": "={{ { tipo: $('Redactar correo').first().json.tipo, asunto: $('Redactar correo').first().json.asunto, message_id: $json.id } }}", "type": "object"},
+            {"id": "3b886440-eff4-488e-bd5a-2dce1e0ddc8c", "name": "meta", "value": "={{ { worker: 'W2_redactor_notificaciones', version: 'm2', procesado_en: $now.toISO() } }}", "type": "object"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "9b160e22-b93c-4e87-a574-772b91ea6b4e",
+      "name": "Salida · Contrato JSON",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [848, 128]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "6e7976c6-c666-48c3-ace7-8c064afe2d19", "name": "status", "value": "error", "type": "string"},
+            {"id": "09bb2c35-d0ab-4806-8082-6f31378569c7", "name": "data", "value": "={{ { motivo: $json.error?.message ?? $json.error ?? 'Error sin detalle' } }}", "type": "object"},
+            {"id": "a30abf26-9945-4905-88dc-aadb43e919b5", "name": "meta", "value": "={{ { worker: 'W2_redactor_notificaciones', version: 'm2', procesado_en: $now.toISO() } }}", "type": "object"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "2b714ca4-0433-45b2-adbd-234370c2ec11",
+      "name": "Salida · Contingencia",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [848, 432]
+    },
+    {
+      "parameters": {
+        "content": "## W2 · Redactor de Notificaciones\n**Tarea atómica:** redactar y enviar el aviso a Mariela según `tipo` (LEAD · POSTVENTA · REVISION_HUMANA). Reemplaza a la tool `notificar_asesor_humano` del M1.\n\n**Gmail:** 3 reintentos cada 2 s. Si igual falla → contingencia `status: \"error\"`.\n\n**Timeout:** 30 s (Settings del workflow).",
+        "height": 260,
+        "width": 560,
+        "color": 5
+      },
+      "id": "db8b4172-6d51-4330-8c0b-c5bc834d9b49",
+      "name": "Nota W2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-128, -16]
+    }
+  ],
+  "connections": {
+    "Entrada · Contrato del Manager": {"main": [[{"node": "Redactar correo", "type": "main", "index": 0}]]},
+    "Redactar correo": {"main": [[{"node": "Enviar aviso a Mariela (Gmail)", "type": "main", "index": 0}], [{"node": "Salida · Contingencia", "type": "main", "index": 0}]]},
+    "Enviar aviso a Mariela (Gmail)": {"main": [[{"node": "Salida · Contrato JSON", "type": "main", "index": 0}], [{"node": "Salida · Contingencia", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "tags": []
+}

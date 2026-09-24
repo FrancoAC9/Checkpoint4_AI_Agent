@@ -1,0 +1,90 @@
+{
+  "name": "M2 · W1 · Analista de Leads",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {"name": "session_id"},
+            {"name": "ramo"},
+            {"name": "bien"},
+            {"name": "nombre"},
+            {"name": "contacto"},
+            {"name": "localidad"},
+            {"name": "mensaje"}
+          ]
+        }
+      },
+      "id": "95f504c8-ac98-4ae0-bda3-bbe53c2cadbe",
+      "name": "Entrada · Contrato del Manager",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [48, 304]
+    },
+    {
+      "parameters": {
+        "jsCode": "// W1 · Analista de Leads — tarea atómica: validar y calificar un lead.\n// Determinístico: cero tokens, misma entrada => misma salida.\nconst RAMOS = {\n  'Automotor': 'marca, modelo y año del vehículo',\n  'Hogar / Combinado Familiar': 'tipo de vivienda',\n  'Vida': 'edad o capital asegurado',\n  'Accidentes Personales': 'actividad o edad',\n  'Comercio / Integral': 'rubro del comercio',\n  'ART': 'cantidad de empleados',\n};\n\nconst i = $input.first().json;\nconst limpiar = (v) => (v ?? '').toString().trim();\n\nif (!limpiar(i.session_id)) {\n  // Error de contrato: dispara la salida de contingencia del Worker\n  throw new Error('Contrato inválido: falta session_id');\n}\n\nconst ramo = limpiar(i.ramo);\nconst ramoValido = Object.prototype.hasOwnProperty.call(RAMOS, ramo);\nconst bien = limpiar(i.bien);\nconst contacto = limpiar(i.contacto);\n\nconst email = (contacto.match(/[\\w.+-]+@[\\w-]+\\.[\\w.-]+/) || [null])[0];\nconst digitos = (email ? contacto.replace(email, '') : contacto).replace(/\\D/g, '');\nconst telefono = digitos.length >= 8 ? digitos : null;\nconst tieneContacto = Boolean(email || telefono);\n\nconst faltantes = [];\nif (!limpiar(i.nombre)) faltantes.push('nombre');\nif (!tieneContacto) faltantes.push('teléfono o email');\nif (!limpiar(i.localidad)) faltantes.push('localidad');\nif (!bien) faltantes.push(ramoValido ? RAMOS[ramo] : 'ramo y bien a asegurar');\n\n// Criterio heredado del M1: con ramo identificado ya se deriva, no se espera a tener todo.\nlet temperatura = 'FRIO';\nif (ramoValido && bien && tieneContacto) temperatura = 'CALIENTE';\nelse if (ramoValido && (bien || tieneContacto)) temperatura = 'TIBIO';\n\nreturn [{\n  json: {\n    status: 'success',\n    data: {\n      ramo: ramoValido ? ramo : 'NO_IDENTIFICADO',\n      bien,\n      nombre: limpiar(i.nombre),\n      email: email ?? '',\n      telefono: telefono ?? '',\n      localidad: limpiar(i.localidad),\n      temperatura,\n      faltantes,\n      notificable: ramoValido,\n    },\n  },\n}];\n"
+      },
+      "id": "811533fb-666f-41ae-88d1-0e7fbc67a721",
+      "name": "Analizar y calificar lead",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [304, 304],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "7aba5b05-648d-4491-ad13-6ab76a865bda", "name": "status", "value": "={{ $json.status }}", "type": "string"},
+            {"id": "2f48b934-f606-4f14-b809-bd524a4fb148", "name": "data", "value": "={{ $json.data }}", "type": "object"},
+            {"id": "01b19b8d-c757-4075-8d07-1860888b5587", "name": "meta", "value": "={{ { worker: 'W1_analista_leads', version: 'm2', procesado_en: $now.toISO() } }}", "type": "object"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "69c786cb-eb72-4a59-86de-fc95eb456251",
+      "name": "Salida · Contrato JSON",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [592, 208]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {"id": "8086a88e-af8b-4b24-be41-3131bead3add", "name": "status", "value": "error", "type": "string"},
+            {"id": "eb372267-291d-4492-9141-0b01e83c30de", "name": "data", "value": "={{ { motivo: $json.error?.message ?? $json.error ?? 'Error sin detalle' } }}", "type": "object"},
+            {"id": "e7a0a34c-a7a6-450c-aad4-df0e78d87c0f", "name": "meta", "value": "={{ { worker: 'W1_analista_leads', version: 'm2', procesado_en: $now.toISO() } }}", "type": "object"}
+          ]
+        },
+        "options": {}
+      },
+      "id": "8604c14f-841d-462a-97eb-60020333d519",
+      "name": "Salida · Contingencia",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [592, 432]
+    },
+    {
+      "parameters": {
+        "content": "## W1 · Analista de Leads\n**Tarea atómica:** validar datos, separar email/teléfono, listar faltantes y asignar temperatura.\n\n**Salida siempre estructurada:** `{status, data, meta}`.\nSi algo falla, devuelve `status: \"error\"` en vez de morir en silencio.\n\n**Timeout:** 30 s (Settings del workflow).",
+        "height": 240,
+        "width": 520,
+        "color": 5
+      },
+      "id": "ec0c5894-7158-4ef7-82b0-c57e05a55bfd",
+      "name": "Nota W1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0, 0]
+    }
+  ],
+  "connections": {
+    "Entrada · Contrato del Manager": {"main": [[{"node": "Analizar y calificar lead", "type": "main", "index": 0}]]},
+    "Analizar y calificar lead": {"main": [[{"node": "Salida · Contrato JSON", "type": "main", "index": 0}], [{"node": "Salida · Contingencia", "type": "main", "index": 0}]]}
+  },
+  "settings": {"executionOrder": "v1"},
+  "pinData": {},
+  "tags": []
+}
